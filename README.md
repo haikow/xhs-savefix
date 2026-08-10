@@ -42,6 +42,12 @@ ANDROID_HOME=~/Android/Sdk ./build.sh
 
 纯 Java，无 native 依赖。核心代码就一个文件：[`app/src/main/java/com/chekayo/xhssavefix/XhsSaveFix.java`](app/src/main/java/com/chekayo/xhssavefix/XhsSaveFix.java)。
 
+## 赞赏
+
+如果这个小工具帮到了你，欢迎请作者喝杯咖啡 ☕，非常感谢！
+
+<img src="images/reward.png" alt="微信赞赏码" width="240">
+
 ## 免责声明
 
 本项目为逆向学习产物，仅在使用者自有设备上解除客户端 UI 限制，不修改、不访问小红书服务器，不涉及账号或数据破解。是否保存、如何使用所保存的内容由使用者自行承担法律与道德责任，作者不对任何滥用负责。
