@@ -8,7 +8,7 @@
         android:allowBackup="false"
         android:label="XHS SaveFix">
         <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="小红书 解除作者关闭保存 (com.xingin.xhs): MediaSaveConfig.disableSaveMedia 强制 false" />
+        <meta-data android:name="xposeddescription" android:value="小红书增强 (com.xingin.xhs): 解除作者关闭保存 + 搜索/笔记响应采集(okhttp interceptor 落盘 ndjson)" />
         <meta-data android:name="xposedminversion" android:value="82" />
         <meta-data android:name="xposedscope" android:resource="@array/xposedscope" />
     </application>

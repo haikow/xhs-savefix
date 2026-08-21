@@ -3,3 +3,6 @@ build/
 *.idsig
 debug.keystore
 *.keystore
+
+# 采集产物(含真实邮箱/userid,不入库)
+tools/harvest-out/
