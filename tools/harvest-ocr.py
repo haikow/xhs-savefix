@@ -82,6 +82,15 @@ def ocr(path):
     except Exception:
         return ''
 
+def qr_decode(path):
+    # 招聘图常放企业微信/招聘二维码,解码比 OCR 稳,直接得链接/微信
+    try:
+        r = subprocess.run(['zbarimg', '-q', '--raw', path],
+                           capture_output=True, text=True, timeout=30)
+        return [x.strip() for x in r.stdout.splitlines() if x.strip()]
+    except Exception:
+        return []
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('ndjson'); ap.add_argument('-s', '--serial', default='')
@@ -103,28 +112,35 @@ def main():
 
     rows = []; tmp = tempfile.gettempdir() + '/_ocrimg.jpg'
     for nid, urls in targets:
-        allmail = set(); allwx = set(); snip = ''
+        allmail = set(); allwx = set(); allqr = set(); snip = ''
         for url in urls[:a.per_note]:
             if phone_fetch(a.serial, url, tmp) < 2000:
                 continue
             text = ocr(tmp)
             em, wx = extract_contacts(text)
             allmail |= em; allwx |= wx
+            for q in qr_decode(tmp):
+                allqr.add(q)
+                # 二维码里也常直接是 mailto:/微信链接,顺手抽联系方式
+                qm, qw = extract_contacts(q)
+                allmail |= qm; allwx |= qw
             if (em or wx) and not snip:
                 snip = ' '.join(text.split())[:80]
-        if allmail or allwx:
+        if allmail or allwx or allqr:
             rows.append({'note_id': nid, 'image_url': urls[0],
                          'emails': ' '.join(sorted(allmail)),
-                         'wechat': ' '.join(sorted(allwx)), 'ocr': snip})
-            print(f"  ★ {nid[:20]} 邮箱:{sorted(allmail)} 微信:{sorted(allwx)}")
+                         'wechat': ' '.join(sorted(allwx)),
+                         'qr': ' | '.join(sorted(allqr)), 'ocr': snip})
+            print(f"  ★ {nid[:20]} 邮箱:{sorted(allmail)} 微信:{sorted(allwx)}"
+                  + (f" 二维码:{sorted(allqr)}" if allqr else ''))
         else:
             print(f"  · {nid[:20]} 无")
 
     outp = os.path.join(a.out, 'image_contacts.csv')
     with open(outp, 'w', newline='', encoding='utf-8-sig') as f:
-        w = csv.DictWriter(f, fieldnames=['note_id', 'image_url', 'emails', 'wechat', 'ocr'])
+        w = csv.DictWriter(f, fieldnames=['note_id', 'image_url', 'emails', 'wechat', 'qr', 'ocr'])
         w.writeheader(); w.writerows(rows)
-    print(f"\n{len(rows)} 帖图里挖到联系方式 -> {outp}")
+    print(f"\n{len(rows)} 帖图里挖到联系方式/二维码 -> {outp}")
 
 if __name__ == '__main__':
     main()
