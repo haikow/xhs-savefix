@@ -13,6 +13,7 @@
 | `harvest-companies.py` | LLM 从正文抽公司实体 + 跨笔记聚合去噪 |
 | `harvest-recruit.py` | 筛「招聘方」帖:标发帖人类型(公司官方/员工/中介/转发)+抽真公司名+触达路径 |
 | `harvest-emailfind.py` | 站外邮箱补全:公司名→LLM 提议域名→MX 验证→hr@/recruit@ 候选 |
+| `harvest-ocr.py` | 图片里的邮箱/微信:手机下高清原图→tesseract OCR→抗变形抽联系方式(招聘帖常把邮箱放图里躲检测) |
 
 ## 采集接口(白名单,均真机验证)
 - `search/notes` `search/videos` `search/onebox` `search/user` —— 搜索结果
@@ -42,10 +43,16 @@ python3 harvest-recruit.py harvest-out/notes.ndjson -o harvest-out
 python3 harvest-extract.py harvest-out/notes.ndjson -o harvest-out
 #   -> profiles.csv(联系方式)  comments.csv(评论里的公司/联系方式)
 
-# ── 阶段3:站外邮箱补全 ─────────────────────────
+# ── 阶段3:邮箱落地 ─────────────────────────────
+# 3a. 图片里的邮箱(招聘帖常把 HR 邮箱放图里躲文字检测;需 tesseract chi_sim+eng)
+python3 harvest-ocr.py harvest-out/notes.ndjson -s $S --notes harvest-out/recruit_notes.csv -o harvest-out
+#   -> image_contacts.csv(note|图里的邮箱/微信);OCR 有误差,是候选,投递前肉眼核对
+# 3b. 站外按公司名补全
 python3 harvest-emailfind.py harvest-out/companies_to_enrich.txt -o harvest-out
 #   -> emails_candidates.csv(公司|域名|MX有效|hr@/recruit@候选)
 ```
+
+依赖:`sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim`(图片 OCR 用)。
 
 ## 触达路径(实测:发帖人≠公司,分两条路)
 `recruit.csv` 的 `poster_type` + `reach` 已分好:
