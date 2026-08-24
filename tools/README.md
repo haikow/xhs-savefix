@@ -15,6 +15,8 @@
 | `harvest-emailfind.py` | 站外邮箱补全:公司名→LLM 提议域名→MX 验证→hr@/recruit@ 候选 |
 | `harvest-ocr.py` | 图片里的联系方式:手机下高清原图→tesseract OCR 抽邮箱/微信 + **zbar 解二维码**(企业微信/招聘门户链接,比 OCR 稳) |
 | `open-note.sh` | 一键打开某条笔记,自动解决 xsec_token 过期(绕作者主页拿新入口) |
+| `harvest.sh` | **一键编排**:`full`(广度发现出公司清单)/ `intent`(带意图,只深挖招聘帖出 leads) |
+| `harvest-leads.py` | 汇总器:把招聘帖 + 简介 + 评论 + 图片OCR/二维码 + 站外补全合并成 `leads.csv` 总表 |
 
 ## 采集接口(白名单,均真机验证)
 - `search/notes` `search/videos` `search/onebox` `search/user` —— 搜索结果
@@ -23,7 +25,17 @@
 - `user/info` —— 用户主页详情(简介 = 公司归属 + 官网/邮箱/微信)
 - `note/user/posted` —— 用户发布笔记(账号滚雪球)
 
-## 工作流(三阶段)
+## 两种爬法(一键)
+```bash
+cd tools; S=d0a7f5cb    # adb devices
+# 广度发现:搜全部关键词、深翻页,出公司清单(不逐帖深挖,快)
+./harvest.sh -s $S -m full   -n 30 keywords.txt   # -> companies.csv
+# 带意图:搜索后先判招聘意图,只对招聘帖进详情/主页/图片OCR挖联系方式,出线索总表
+./harvest.sh -s $S -m intent -n 15 keywords.txt   # -> leads.csv
+```
+`leads.csv` 每行=一条招聘帖:公司 | 发帖人类型 | 触达路径 | 岗位 | 三路邮箱(正文·图片·站外) | 微信 | 二维码 | 一键打开命令。
+
+## 手动分步(等价于 intent,便于调试)
 ```bash
 cd tools
 S=d0a7f5cb        # adb devices
