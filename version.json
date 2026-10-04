@@ -1,12 +1,12 @@
 {
-  "versionCode": 2,
-  "versionName": "1.1.0",
-  "changelog": "· 新增：视频保存到相册——拆三道门（长按菜单 FunctionSwitch 门、服务端 /video/save 接口门改写 disable+status:2、下载分支空 URL 纠偏），作者关闭下载的视频也能存\n· 新增：去水印——保存图片不再叠加右下角作者水印与左下角「AI生成」标签（MediaSaveConfig 方向修正 + ImageBean.disable_ai + jm7.j.b 兜底；旧版把 disableWaterMark 强制 false 恰恰会画上作者水印，方向已纠正）\n· 修复：issue #2 新版服务端权限数组 [{\"type\":\"image_download\",\"enable\":false}] 置灰问题，image_download/video_download 一并放行（issue #1 同源）\n· 文档：逆向分析新增 8.x 节（FunctionSwitch/水印合成/status 轮询命门）\n· 构建：build.sh 兼容 macOS (stat)",
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "changelog": "· 新增：更新提示——打开小红书主页时，有新版本会在顶部弹横幅（点击直达下载，✕ 可忽略该版本，本地记住不再弹）\n· 新增：小红书「设置」页右下角新增红色「SaveFix ⚙」悬浮入口，点开即可检查更新 / 查看 changelog / 去下载\n· 更新检查走 jsDelivr → fastly → ghproxy → raw 镜像链拉取 version.json，国内可用\n· （1.1.0 内容）视频保存三道门、去水印（作者水印方向修正 + AI生成标签移除）、新版权限数组放行",
   "downloads": [
-    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk",
-    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk",
+    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk",
+    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk",
     "https://github.com/haikow/xhs-savefix/releases/latest",
     "https://github.com/Xposed-Modules-Repo/com.chekayo.xhssavefix/releases/latest"
   ],
-  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk"
+  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk"
 }

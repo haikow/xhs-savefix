@@ -86,6 +86,7 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
         hookSaveFix(lpparam);
         hookNoWatermark(lpparam);
         hookVideoDownloadBranch(lpparam);
+        UpdatePrompt.install(lpparam);
         hookHarvest(lpparam);
     }
 

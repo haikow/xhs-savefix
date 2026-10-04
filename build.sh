@@ -39,7 +39,7 @@ find "$PROJ/stubs" -name '*.java' > "$BUILD/stub.list"
 
 echo "== 2. javac module =="
 find "$PROJ/app/src/main/java" -name '*.java' > "$BUILD/src.list"
-"$JAVAC" -g -encoding UTF-8 --release 8 -cp "$BUILD/stubs" -d "$BUILD/app" @"$BUILD/src.list"
+"$JAVAC" -g -encoding UTF-8 --release 8 -cp "$BUILD/stubs:$ANDROID_JAR" -d "$BUILD/app" @"$BUILD/src.list"
 
 echo "== 3. d8 -> classes.dex =="
 find "$BUILD/app" -name '*.class' > "$BUILD/cls.list"
