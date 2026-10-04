@@ -6,3 +6,6 @@ debug.keystore
 
 # 采集产物(含真实邮箱/userid,不入库)
 tools/harvest-out/
+
+# 逆向工作区(采集产物/APK/解包,体积大且含隐私)
+work/

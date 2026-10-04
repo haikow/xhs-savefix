@@ -1,0 +1,12 @@
+{
+  "versionCode": 2,
+  "versionName": "1.1.0",
+  "changelog": "· 新增：视频保存到相册——拆三道门（长按菜单 FunctionSwitch 门、服务端 /video/save 接口门改写 disable+status:2、下载分支空 URL 纠偏），作者关闭下载的视频也能存\n· 新增：去水印——保存图片不再叠加右下角作者水印与左下角「AI生成」标签（MediaSaveConfig 方向修正 + ImageBean.disable_ai + jm7.j.b 兜底；旧版把 disableWaterMark 强制 false 恰恰会画上作者水印，方向已纠正）\n· 修复：issue #2 新版服务端权限数组 [{\"type\":\"image_download\",\"enable\":false}] 置灰问题，image_download/video_download 一并放行（issue #1 同源）\n· 文档：逆向分析新增 8.x 节（FunctionSwitch/水印合成/status 轮询命门）\n· 构建：build.sh 兼容 macOS (stat)",
+  "downloads": [
+    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk",
+    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk",
+    "https://github.com/haikow/xhs-savefix/releases/latest",
+    "https://github.com/Xposed-Modules-Repo/com.chekayo.xhssavefix/releases/latest"
+  ],
+  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@2-1.1.0/dist/xhs-savefix-1.1.0.apk"
+}

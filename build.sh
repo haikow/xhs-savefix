@@ -63,4 +63,5 @@ echo "== 7. apksigner sign =="
   --key-pass pass:android --out "$PROJ/xhs-savefix.apk" "$BUILD/app-aligned.apk"
 
 echo "== DONE =="
-echo "APK = $PROJ/xhs-savefix.apk  size=$(awk "BEGIN{printf \"%.1f\", $(stat -c%s "$PROJ/xhs-savefix.apk")/1024}")KB"
+APK_SIZE="$(stat -f%z "$PROJ/xhs-savefix.apk" 2>/dev/null || stat -c%s "$PROJ/xhs-savefix.apk")"
+echo "APK = $PROJ/xhs-savefix.apk  size=$(( APK_SIZE / 1024 ))KB"
