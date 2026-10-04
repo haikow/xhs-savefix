@@ -46,8 +46,12 @@ public final class UpdatePrompt {
     private static final long CHECK_INTERVAL_MS = 6L * 3600 * 1000; // 面板内 6h 内复用缓存
 
     /** 与 AndroidManifest versionName/versionCode 同步(更新检查比对基准) */
-    static final String MODULE_VERSION = "1.2.0";
-    static final int MODULE_VERSION_CODE = 3;
+    static final String MODULE_VERSION = "1.2.1";
+    static final int MODULE_VERSION_CODE = 4;
+
+    /** 开源地址(面板里露出) */
+    private static final String REPO_URL = "https://github.com/haikow/xhs-savefix";
+    private static final String REPO_URL_LSPREPO = "https://github.com/Xposed-Modules-Repo/com.chekayo.xhssavefix";
 
     /** version.json 镜像链,和 FeishuKit 同款 */
     private static final String[] MIRRORS = {
@@ -72,7 +76,7 @@ public final class UpdatePrompt {
                 try {
                     if (checkedThisRun) return;
                     checkedThisRun = true;
-                    checkAsync((Activity) param.thisObject, null);
+                    runCheck((Activity) param.thisObject, null, false, true, null);
                 } catch (Throwable ignored) {
                 }
             }
@@ -157,49 +161,50 @@ public final class UpdatePrompt {
         return null;
     }
 
-    /** 后台拉 version.json;act 非空且有新版时弹横幅。返回最新 Result(可能 null)。 */
-    private static Result checkAsync(final Activity act, final TextView updateInView) {
-        Thread t = new Thread(new Runnable() {
+    /** 后台检查更新。force=true 忽略缓存强拉;banner=true 有新版时弹主页横幅;cb 在 UI 线程回调结果(可能 null=失败)。 */
+    private interface CheckCallback {
+        void onResult(Result r);
+    }
+
+    private static void runCheck(final Activity act, final TextView tv, final boolean force,
+                                 final boolean banner, final CheckCallback cb) {
+        if (!force && latestJson != null
+                && System.currentTimeMillis() - lastCheckAt < CHECK_INTERVAL_MS) {
+            deliver(act, tv, parse(latestJson), banner, cb);
+            return;
+        }
+        new Thread(new Runnable() {
             @Override
             public void run() {
                 String json = fetch();
-                if (json == null) {
-                    notifyView(updateInView, "检查失败:所有镜像都不可达,稍后再试");
-                    return;
+                if (json != null) {
+                    latestJson = json;
+                    lastCheckAt = System.currentTimeMillis();
                 }
-                latestJson = json;
-                lastCheckAt = System.currentTimeMillis();
-                final Result r = parse(json);
-                if (r == null) return;
-                if (act != null && r.versionCode > MODULE_VERSION_CODE && r.versionCode != dismissed(act)) {
+                final Result r = json == null ? null : parse(json);
+                if (act != null) {
                     act.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            showBanner(act, r);
+                            deliver(act, tv, r, banner, cb);
                         }
                     });
                 }
-                notifyView(updateInView, describe(r, act));
             }
-        }, "xhs-savefix-upd");
-        t.setDaemon(true);
-        t.start();
-        return null;
+        }, "xhs-savefix-upd").start();
     }
 
-    private static void notifyView(final TextView tv, final String text) {
-        if (tv == null) return;
-        final Activity act = (Activity) tv.getContext();
-        act.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                try { tv.setText(text); } catch (Throwable ignored) {}
-            }
-        });
+    private static void deliver(Activity act, TextView tv, Result r, boolean banner, CheckCallback cb) {
+        if (tv != null) tv.setText(describe(r, act));
+        if (r != null && banner && r.versionCode > MODULE_VERSION_CODE
+                && act != null && r.versionCode != dismissed(act)) {
+            showBanner(act, r);
+        }
+        if (cb != null) cb.onResult(r);
     }
 
     private static String describe(Result r, Activity act) {
-        if (r == null) return "检查失败";
+        if (r == null) return "检查失败:所有镜像都不可达,稍后再试";
         if (r.versionCode <= MODULE_VERSION_CODE) return "已是最新版本 v" + MODULE_VERSION;
         StringBuilder sb = new StringBuilder("发现新版本 v").append(r.versionName)
                 .append("（当前 v").append(MODULE_VERSION).append("）");
@@ -292,7 +297,7 @@ public final class UpdatePrompt {
             pill.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    showPanel(act, pill);
+                    showPanel(act);
                 }
             });
             content.addView(pill, lp);
@@ -301,38 +306,109 @@ public final class UpdatePrompt {
         }
     }
 
-    private static void showPanel(final Activity act, final TextView updateInView) {
+    private static void showPanel(final Activity act) {
         final TextView tv = new TextView(act);
         tv.setTextSize(14f);
         tv.setLineSpacing(dp(act, 2), 1f);
         tv.setPadding(dp(act, 20), dp(act, 8), dp(act, 20), dp(act, 4));
-        final boolean fresh = latestJson != null
-                && System.currentTimeMillis() - lastCheckAt < CHECK_INTERVAL_MS;
-        if (fresh) {
-            tv.setText(describe(parse(latestJson), act));
-        } else {
-            tv.setText("当前 v" + MODULE_VERSION + "\n正在检查更新…");
-            checkAsync(act, tv);
-        }
-        final Result cached = fresh ? parse(latestJson) : null;
-        AlertDialog.Builder b = new AlertDialog.Builder(act)
+
+        // 动作行:检查更新 | GitHub 开源 | 去下载(有新版才显示) | 忽略此版本(有新版才显示)
+        final LinearLayout row = new LinearLayout(act);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(act, 12), dp(act, 6), dp(act, 12), dp(act, 4));
+
+        final TextView dlBtn = chip(act, "去下载");
+        final TextView ignBtn = chip(act, "忽略此版本");
+        dlBtn.setVisibility(View.GONE);
+        ignBtn.setVisibility(View.GONE);
+
+        TextView checkBtn = chip(act, "检查更新");
+        checkBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tv.setText("当前 v" + MODULE_VERSION + "\n正在检查更新…");
+                runCheck(act, tv, true, false, new CheckCallback() {
+                    @Override
+                    public void onResult(Result r) {
+                        boolean isNew = r != null && r.versionCode > MODULE_VERSION_CODE;
+                        dlBtn.setVisibility(isNew ? View.VISIBLE : View.GONE);
+                        ignBtn.setVisibility(isNew ? View.VISIBLE : View.GONE);
+                    }
+                });
+            }
+        });
+        TextView ghBtn = chip(act, "GitHub 开源");
+        ghBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openUrl(act, REPO_URL);
+            }
+        });
+        dlBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Result r = latestJson == null ? null : parse(latestJson);
+                if (r != null) openUrl(act, r.downloadUrl);
+            }
+        });
+        ignBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Result r = latestJson == null ? null : parse(latestJson);
+                if (r != null) setDismissed(act, r.versionCode);
+                dlBtn.setVisibility(View.GONE);
+                ignBtn.setVisibility(View.GONE);
+            }
+        });
+        row.addView(checkBtn, chipLp(act));
+        row.addView(ghBtn, chipLp(act));
+        row.addView(dlBtn, chipLp(act));
+        row.addView(ignBtn, chipLp(act));
+
+        final LinearLayout box = new LinearLayout(act);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(tv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(act)
                 .setTitle("XHS SaveFix v" + MODULE_VERSION)
-                .setView(new ScrollViewWrap(act, tv));
-        if (cached != null && cached.versionCode > MODULE_VERSION_CODE) {
-            b.setPositiveButton("去下载", new android.content.DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(android.content.DialogInterface d, int w) {
-                    openUrl(act, cached.downloadUrl);
-                }
-            });
-            b.setNeutralButton("忽略此版本", new android.content.DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(android.content.DialogInterface d, int w) {
-                    setDismissed(act, cached.versionCode);
-                }
-            });
-        }
-        b.setNegativeButton("关闭", null).show();
+                .setView(new ScrollViewWrap(act, box))
+                .setNegativeButton("关闭", null)
+                .show();
+
+        runCheck(act, tv, false, false, new CheckCallback() {
+            @Override
+            public void onResult(Result r) {
+                boolean isNew = r != null && r.versionCode > MODULE_VERSION_CODE;
+                dlBtn.setVisibility(isNew ? View.VISIBLE : View.GONE);
+                ignBtn.setVisibility(isNew ? View.VISIBLE : View.GONE);
+            }
+        });
+    }
+
+    /** 面板小按钮(圆角 chip) */
+    private static TextView chip(Activity act, String text) {
+        TextView c = new TextView(act);
+        c.setText(text);
+        c.setTextSize(13f);
+        c.setTextColor(Color.WHITE);
+        c.setPadding(dp(act, 14), dp(act, 7), dp(act, 14), dp(act, 7));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFFFF2442);
+        bg.setCornerRadius(dp(act, 16));
+        c.setBackground(bg);
+        c.setClickable(true);
+        return c;
+    }
+
+    private static LinearLayout.LayoutParams chipLp(Activity act) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(act, 8);
+        return lp;
     }
 
     /** ScrollView 包一层,防止 changelog 过长 + AlertDialog 触摸失效问题 */

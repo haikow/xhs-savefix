@@ -1,12 +1,12 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2.0",
-  "changelog": "· 新增：更新提示——打开小红书主页时，有新版本会在顶部弹横幅（点击直达下载，✕ 可忽略该版本，本地记住不再弹）\n· 新增：小红书「设置」页右下角新增红色「SaveFix ⚙」悬浮入口，点开即可检查更新 / 查看 changelog / 去下载\n· 更新检查走 jsDelivr → fastly → ghproxy → raw 镜像链拉取 version.json，国内可用\n· （1.1.0 内容）视频保存三道门、去水印（作者水印方向修正 + AI生成标签移除）、新版权限数组放行",
+  "versionCode": 4,
+  "versionName": "1.2.1",
+  "changelog": "· 新增：设置页 SaveFix 面板提供「检查更新」按钮（忽略缓存强拉最新 version.json）与「GitHub 开源」直达入口\n· 面板按钮改为红底白字 chip，有新版时「去下载 / 忽略此版本」动态出现\n· （1.2.0 内容）打开小红书主页有新版弹顶部横幅；视频保存三道门；去水印",
   "downloads": [
-    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk",
-    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk",
+    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@4-1.2.1/dist/xhs-savefix-1.2.1.apk",
+    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@4-1.2.1/dist/xhs-savefix-1.2.1.apk",
     "https://github.com/haikow/xhs-savefix/releases/latest",
     "https://github.com/Xposed-Modules-Repo/com.chekayo.xhssavefix/releases/latest"
   ],
-  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@3-1.2.0/dist/xhs-savefix-1.2.0.apk"
+  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@4-1.2.1/dist/xhs-savefix-1.2.1.apk"
 }
