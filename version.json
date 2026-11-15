@@ -1,6 +1,7 @@
 {
   "versionCode": 7,
   "versionName": "1.2.4",
+  "summary": "楼中楼失控根修 + 网络闪退修复 + 适配小红书 9.54.1",
   "changelog": "· 修复楼中楼请求失控：宿主翻页响应不再触发续抓（SELF_PENDING 发起标记，请求量收敛到 楼数×≤3页）· 修复网络抖动/快速滑动时小红书闪退（拦截器异常还原，Error 不再穿透 okhttp）· 适配小红书 9.54.1（评论服务注册表/视频下载分支重定位，getSubCommentsV3 12 参兼容，同时保留 9.33.x 支持）· 单楼子页上限修正为 3 页",
   "downloads": [
     "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@7-1.2.4/dist/xhs-savefix-1.2.4.apk",

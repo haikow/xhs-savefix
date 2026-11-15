@@ -4,6 +4,7 @@ name: Release
 # 参考: 上游 ShirakiriHiira/xhs-savefix release.yml + haikow/com.chekayo.feishuantirecall publish.yml。
 # 签名用仓库内置 debug.keystore(公开调试签名,与本地构建同 key,LSPosed 覆盖安装无障碍),
 # 因此不需要任何 secrets;若未来换正式 key,再加 KEYSTORE_B64/KEYSTORE_PASSWORD/KEYSTORE_ALIAS secrets。
+# Release 标题与正文自动取自 version.json 的 summary/changelog 字段(发版前先 bump version.json)。
 on:
   push:
     tags:
@@ -61,17 +62,36 @@ jobs:
           name: xhs-savefix-apk
           path: xhs-savefix-*.apk
 
+      # Release 标题/正文来自 version.json(与模块内"检查更新"同一数据源,不再两张皮)
+      - name: Extract release notes from version.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'EOF' > release_notes.md
+          import json
+          v = json.load(open("version.json", encoding="utf-8"))
+          cl = v.get("changelog", "")
+          bullets = "\n".join("- " + seg.strip() for seg in cl.split("·") if seg.strip())
+          print("## 更新内容\n")
+          print(bullets + "\n")
+          print("## 安装说明\n")
+          print("1. 下载 APK 安装(签名与历史版本一致,可直接覆盖)")
+          print("2. 在 LSPosed 中启用模块并勾选作用域 `com.xingin.xhs`")
+          print("3. 强制停止小红书后重新打开生效")
+          EOF
+          VN=$(python3 -c "import json;print(json.load(open('version.json'))['versionName'])")
+          VC=$(python3 -c "import json;print(json.load(open('version.json'))['versionCode'])")
+          SM=$(python3 -c "import json;print(json.load(open('version.json')).get('summary',''))")
+          printf '\n---\n\n*模块版本 v%s (versionCode %s) · tag `%s`*\n' "$VN" "$VC" "$TAG" >> release_notes.md
+          echo "VN=$VN" >> "$GITHUB_ENV"
+          echo "SM=$SM" >> "$GITHUB_ENV"
+          echo "--- release_notes.md 预览 ---"; cat release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: xhs-savefix-*.apk
           generate_release_notes: true
           draft: false
-          body: |
-            XHS SaveFix — 小红书解除「作者关闭保存」+ 去水印
-
-            ${{ vars.RELEASE_NOTES_EXTRA || '' }}
-            更新说明见仓库 version.json 的 changelog 字段。
-
-            - 安装后需在 LSPosed 中启用模块并勾选作用域 `com.xingin.xhs`
-            - 每次更新后需强制停止小红书再重新打开
+          name: "v${{ env.VN }} · ${{ env.SM }}"
+          body_path: release_notes.md
