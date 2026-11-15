@@ -1,0 +1,77 @@
+name: Release
+
+# 打 tag(<versionCode>-<versionName>,如 7-1.2.4)即自动构建并发布到 Releases。
+# 参考: 上游 ShirakiriHiira/xhs-savefix release.yml + haikow/com.chekayo.feishuantirecall publish.yml。
+# 签名用仓库内置 debug.keystore(公开调试签名,与本地构建同 key,LSPosed 覆盖安装无障碍),
+# 因此不需要任何 secrets;若未来换正式 key,再加 KEYSTORE_B64/KEYSTORE_PASSWORD/KEYSTORE_ALIAS secrets。
+on:
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]*'
+
+permissions:
+  contents: write
+
+# 同一 tag 并发触发不排队,后一次直接取消前一次
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # v3 默认 packages 含已下架的 `tools`,会以退出码 1 失败,显式覆盖
+          packages: 'platform-tools'
+
+      - name: Install build-tools and platform
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "build-tools;34.0.0" "platforms;android-34"
+
+      - name: Build APK
+        run: ./build.sh
+
+      - name: Verify APK
+        run: |
+          ls -la xhs-savefix.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs xhs-savefix.apk
+
+      # tag 形如 <vc>-<vn>(7-1.2.4) → 资产命名对齐 dist/:xhs-savefix-<vn>.apk
+      - name: Rename release asset
+        run: cp xhs-savefix.apk "xhs-savefix-${GITHUB_REF_NAME#*-}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhs-savefix-apk
+          path: xhs-savefix-*.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: xhs-savefix-*.apk
+          generate_release_notes: true
+          draft: false
+          body: |
+            XHS SaveFix — 小红书解除「作者关闭保存」+ 去水印
+
+            ${{ vars.RELEASE_NOTES_EXTRA || '' }}
+            更新说明见仓库 version.json 的 changelog 字段。
+
+            - 安装后需在 LSPosed 中启用模块并勾选作用域 `com.xingin.xhs`
+            - 每次更新后需强制停止小红书再重新打开

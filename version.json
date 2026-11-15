@@ -1,12 +1,12 @@
 {
-  "versionCode": 6,
-  "versionName": "1.2.3",
-  "changelog": "· 楼中楼自动展开：评论区子评论自动拉全（借宿主接口+人像节奏，无需手动点「展开回复」）· 人像节奏规则：stealth/FAST 两档（采集风控纪律）· 面板「检查更新 / GitHub 开源」红色按钮（1.2.1 内容）· 修复视频保存进度卡 0（status 轮询 + 空URL分支纠偏）",
+  "versionCode": 7,
+  "versionName": "1.2.4",
+  "changelog": "· 修复楼中楼请求失控：宿主翻页响应不再触发续抓（SELF_PENDING 发起标记，请求量收敛到 楼数×≤3页）· 修复网络抖动/快速滑动时小红书闪退（拦截器异常还原，Error 不再穿透 okhttp）· 适配小红书 9.54.1（评论服务注册表/视频下载分支重定位，getSubCommentsV3 12 参兼容，同时保留 9.33.x 支持）· 单楼子页上限修正为 3 页",
   "downloads": [
-    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@6-1.2.3/dist/xhs-savefix-1.2.3.apk",
-    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@6-1.2.3/dist/xhs-savefix-1.2.3.apk",
+    "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@7-1.2.4/dist/xhs-savefix-1.2.4.apk",
+    "https://fastly.jsdelivr.net/gh/haikow/xhs-savefix@7-1.2.4/dist/xhs-savefix-1.2.4.apk",
     "https://github.com/haikow/xhs-savefix/releases/latest",
     "https://github.com/Xposed-Modules-Repo/com.chekayo.xhssavefix/releases/latest"
   ],
-  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@6-1.2.3/dist/xhs-savefix-1.2.3.apk"
+  "download": "https://cdn.jsdelivr.net/gh/haikow/xhs-savefix@7-1.2.4/dist/xhs-savefix-1.2.4.apk"
 }

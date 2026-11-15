@@ -8,4 +8,10 @@ public final class XposedHelpers {
     public static Object callStaticMethod(Class<?> clazz, String methodName, Object... args) { return null; }
     public static void setObjectField(Object obj, String fieldName, Object value) {}
     public static Object getObjectField(Object obj, String fieldName) { return null; }
+
+    /** 与真实 Xposed API 一致:callMethod 把底层 InvocationTargetException 的 cause 包成 Error 抛出 */
+    public static final class InvocationTargetError extends Error {
+        public InvocationTargetError(Throwable cause) { super(cause); }
+        public Throwable getCause() { return null; }
+    }
 }

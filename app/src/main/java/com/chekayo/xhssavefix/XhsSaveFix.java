@@ -116,10 +116,14 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                 new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
-                        if (Boolean.TRUE.equals(param.getResult())) return;
-                        Object type = XposedHelpers.callMethod(param.thisObject, "c");
-                        if ("image_download".equals(type) || "video_download".equals(type)) {
-                            param.setResult(Boolean.TRUE);
+                        try {
+                            if (Boolean.TRUE.equals(param.getResult())) return;
+                            Object type = XposedHelpers.callMethod(param.thisObject, "c");
+                            if ("image_download".equals(type) || "video_download".equals(type)) {
+                                param.setResult(Boolean.TRUE);
+                            }
+                        } catch (Throwable t) { // 宿主改混淆名时不许异常穿透进保存菜单
+                            XposedBridge.log("[xhs-savefix] FunctionSwitch.a() cb err: " + t);
                         }
                     }
                 });
@@ -135,10 +139,14 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                 lpparam.classLoader, "a", new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
-                        if (!Boolean.TRUE.equals(param.getResult())) return;
-                        Object type = XposedHelpers.callMethod(param.thisObject, "g");
-                        if ("image_download".equals(type) || "video_download".equals(type)) {
-                            param.setResult(Boolean.FALSE);
+                        try {
+                            if (!Boolean.TRUE.equals(param.getResult())) return;
+                            Object type = XposedHelpers.callMethod(param.thisObject, "g");
+                            if ("image_download".equals(type) || "video_download".equals(type)) {
+                                param.setResult(Boolean.FALSE);
+                            }
+                        } catch (Throwable t) { // 宿主改混淆名时不许异常穿透进保存菜单
+                            XposedBridge.log("[xhs-savefix] Operate.a() cb err: " + t);
                         }
                     }
                 });
@@ -180,20 +188,9 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
             XposedBridge.log("[xhs-savefix] hook ImageBean.u() failed: " + t);
         }
 
-        // 兜底:AI 标签位图构造(混淆类 jm7.j,绑定 9.33.4)返回 null,
-        // 合成器 if(!disableAi && aiBitmap!=null) 自然不画。失败不影响其他 hook。
-        try {
-            XposedHelpers.findAndHookMethod("jm7.j", lpparam.classLoader, "b",
-                "android.content.Context", boolean.class, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        param.setResult(null);
-                    }
-                });
-            XposedBridge.log("[xhs-savefix] hooked jm7.j.b() (ai watermark bitmap) -> null");
-        } catch (Throwable t) {
-            XposedBridge.log("[xhs-savefix] hook jm7.j.b() failed (non-fatal): " + t);
-        }
+        // 兜底(9.33.x 的 jm7.j.b)已移除:合成器条件是 !disableAi && 标签!=null,
+        // 上面的 u() 恒 true 后永不绘制,b() 兜底冗余;且 jm7 是混淆名每版轮换
+        // (9.54.1 已变),留着只会刷启动失败日志。若服务端不再下发 disable_ai 再重启此兜底。
     }
 
     // ---------- 2. Harvest ----------
@@ -222,7 +219,12 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                         return null;
                     }
                     Object chain = args[0];
-                    Object request = XposedHelpers.callMethod(chain, "request");
+                    Object request;
+                    try {
+                        request = XposedHelpers.callMethod(chain, "request");
+                    } catch (XposedHelpers.InvocationTargetError e) {
+                        throw e.getCause() == null ? e : e.getCause(); // 还原原始异常
+                    }
                     if (sApiClient == null) {
                         try { // 记下真正服务 API 请求的 client(带鉴权链),楼中楼自动展开要用
                             Object callObj = XposedHelpers.callMethod(chain, "call");
@@ -230,7 +232,19 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                             if (cl != null) sApiClient = cl;
                         } catch (Throwable ignored) {}
                     }
-                    Object response = XposedHelpers.callMethod(chain, "proceed", request);
+                    Object response;
+                    try {
+                        response = XposedHelpers.callMethod(chain, "proceed", request);
+                    } catch (XposedHelpers.InvocationTargetError e) {
+                        // 11-12 崩溃日志实锤:IOException(Canceled/超时/断网等网络抖动)被
+                        // callMethod 包成 InvocationTargetError(Error 子类)穿透 okhttp——
+                        // App 同步调用只 catch IOException,协程/RxJava2 把 Error 视为 fatal
+                        // 直接闪退。这里还原底层异常原样抛出,与无模块时语义一致。
+                        Throwable c = e.getCause() == null ? e : e.getCause();
+                        if (c instanceof java.io.IOException || c instanceof RuntimeException
+                                || c instanceof Error) throw c;
+                        throw new RuntimeException(c); // 少见受检异常兜底,避免 UndeclaredThrowable
+                    }
                     try {
                         response = maybeVideoSaveFix(request, response);
                     } catch (Throwable t) {
@@ -288,6 +302,32 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
     private static volatile Object sApiClient = null;   // 已验证能用的 client
     private static final java.util.Set<String> EXPANDED_ROOTS =
         java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    private static final java.util.Set<String> SEEN_SUB_IDS =
+        java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    // 主动发起的子评论请求登记(noteId|commentId|start原值),响应回流时消费标记。
+    // 只有带标记的响应才触发续抓链;宿主 UI 自己翻页的响应只落盘不触发。
+    // 根因修复:宿主分页响应也流经我们注入的 interceptor,此前对每个 sub_comments
+    // 响应都无条件 queueNextSubPage,造成"宿主翻页 × 模块续抓"乘法放大
+    // (上游反馈用户翻 3 次评论产生 2317 次请求的失控根因)。
+    // 不碰撞保证(2026-11-15 实测宿主 URL):宿主 start 传 JSON 游标对象
+    // (%7B%22cursor%22...),模块只传纯子评 id 或空串,同一楼同游标不会串。
+    private static final java.util.Set<String> SELF_PENDING =
+        java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
+    private static void registerSelf(String noteId, String commentId, String start) {
+        if (SELF_PENDING.size() > 200) SELF_PENDING.clear(); // 泄漏兜底(请求失败标记残留)
+        SELF_PENDING.add(noteId + "|" + commentId + "|" + (start == null ? "" : start));
+    }
+
+    private static boolean consumeSelf(String url) {
+        String nid = queryParam(url, "note_id");
+        String cid = queryParam(url, "comment_id");
+        if (nid == null || cid == null) return false;
+        String st = queryParam(url, "start");
+        return SELF_PENDING.remove(nid + "|" + cid + "|" + (st == null ? "" : st));
+    }
+    private static final int MAX_PAGES_PER_FLOOR = 3;   // 单楼子页上限(每页5条,覆盖15条子评足够)
+    private static final int MAX_FLOORS_PER_NOTE = 40;  // 单帖排队楼层数上限
     private static final java.util.concurrent.ExecutorService EXPAND_POOL =
         java.util.concurrent.Executors.newSingleThreadExecutor();
     private static volatile long sLastExpandAt = 0L;
@@ -343,6 +383,16 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {}
     }
 
+    private static final java.util.Map<String, Integer> PAGE_COUNTERS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private static int pageCounter(String key) {
+        Integer v = PAGE_COUNTERS.get(key);
+        return v == null ? 0 : v;
+    }
+    private static void bumpCounter(String key) {
+        PAGE_COUNTERS.put(key, pageCounter(key) + 1);
+    }
+
     private static void rememberClient(Object client) {
         synchronized (HOST_CLIENTS) {
             if (HOST_CLIENTS.size() >= 8) HOST_CLIENTS.remove(0);
@@ -365,6 +415,14 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
             for (int i = 0; i < cs.length(); i++) {
                 org.json.JSONObject c = cs.optJSONObject(i);
                 if (c == null) continue;
+                loadExpandedRoots();
+                org.json.JSONArray pre = c.optJSONArray("sub_comments");
+                if (pre != null) {
+                    for (int j = 0; j < pre.length(); j++) {
+                        org.json.JSONObject p0 = pre.optJSONObject(j);
+                        if (p0 != null) SEEN_SUB_IDS.add(p0.optString("id", ""));
+                    }
+                }
                 org.json.JSONArray inl = c.optJSONArray("sub_comments");
                 int inline = inl == null ? 0 : inl.length();
                 boolean more = c.optBoolean("sub_has_more", false);
@@ -384,6 +442,17 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                 roots.add(rid + "|");
             }
             if (roots.isEmpty()) return;
+            // 单帖楼层数上限: 防大评论区一次性排满队列
+            int queuedForNote = 0;
+            for (String k : EXPANDED_ROOTS) {
+                if (k.startsWith(noteId + "/")) queuedForNote++;
+            }
+            int overflow = roots.size() + queuedForNote - MAX_FLOORS_PER_NOTE;
+            if (overflow > 0) {
+                roots.subList(Math.max(0, roots.size() - overflow), roots.size()).clear();
+                XposedBridge.log("[xhs-harvest] 单帖楼层数截断" + overflow
+                    + " (累计" + queuedForNote + ",上限" + MAX_FLOORS_PER_NOTE + ")");
+            }
             final ClassLoader cl2 = appClassLoader;
             EXPAND_POOL.execute(new Runnable() {
                 @Override
@@ -408,8 +477,8 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                                 "com.xingin.matrix.comment.model.service.CommentService");
                             Object registry = serviceRegistry(cl2);
                             Object svc = XposedHelpers.callMethod(registry, "b", svcCls);
-                            Object obs = XposedHelpers.callMethod(svc, "getSubCommentsV3",
-                                noteId, rid, startArg, 5, "", "", "", "", "", "", Boolean.FALSE);
+                            registerSelf(noteId, rid, startArg); // 首页响应回流时凭此标记续抓
+                            Object obs = callSubComments(svc, cl2, noteId, rid, startArg);
                             XposedHelpers.callMethod(obs, "subscribe");
                             XposedBridge.log("[xhs-harvest] auto-expand fired " + noteId + "/" + rid);
                         } catch (Throwable t) {
@@ -437,6 +506,7 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
     }
 
     // 子评论每页服务端上限 5 条;页间隔与楼层间隔同规则(人像节奏)
+    // 防失控: 页数上限/楼层数上限/新增性校验(0新增立即停链)/指数退避
     private static void queueNextSubPage(String url, String body) {
         try {
             if (sExpandCount >= EXPAND_MAX_PER_RUN) return;
@@ -445,12 +515,32 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
             if (d == null || !d.optBoolean("has_more", false)) return;
             org.json.JSONArray cs = d.optJSONArray("comments");
             if (cs == null || cs.length() == 0) return;
+            // 新增性校验: 本页所有子评都已见过 → 游标未前进,立即终止(防服务器游标循环)
+            int fresh = 0;
+            for (int i = 0; i < cs.length(); i++) {
+                org.json.JSONObject c = cs.optJSONObject(i);
+                if (c != null && SEEN_SUB_IDS.add(c.optString("id", ""))) fresh++;
+            }
+            if (fresh == 0) {
+                XposedBridge.log("[xhs-harvest] 子页0新增,终止该楼续抓(防游标循环)");
+                return;
+            }
             org.json.JSONObject last = cs.optJSONObject(cs.length() - 1);
             String startId = last == null ? null : last.optString("id", "");
             if (startId == null || startId.isEmpty()) return;
             final String noteId = queryParam(url, "note_id");
             final String commentId = queryParam(url, "comment_id");
             if (noteId == null || commentId == null) return;
+            // 页数上限: 同一楼的页计数器(noteId/commentId/#pages)。
+            // 计数器只数续页(首页在 autoExpandSubComments 发,不进这里),
+            // 含首页总共 MAX_PAGES_PER_FLOOR 页 → 续页数到 MAX-1 就停(实测曾 off-by-one 到 4 页)。
+            String pageKey = noteId + "/" + commentId + "#pages";
+            int pages = pageCounter(pageKey);
+            if (pages >= MAX_PAGES_PER_FLOOR - 1) {
+                XposedBridge.log("[xhs-harvest] 该楼已达页数上限(" + MAX_PAGES_PER_FLOOR + "),停止续抓");
+                return;
+            }
+            bumpCounter(pageKey);
             final String start = startId;
             final ClassLoader cl2 = appClassLoader;
             if (!EXPANDED_ROOTS.add(noteId + "/" + commentId + "#p" + startId)) return;
@@ -465,8 +555,8 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
                         Object registry = serviceRegistry(cl2);
                         Object svc = XposedHelpers.callMethod(registry, "b",
                                 cl2.loadClass("com.xingin.matrix.comment.model.service.CommentService"));
-                        Object obs = XposedHelpers.callMethod(svc, "getSubCommentsV3",
-                                noteId, commentId, start, 5, "", "", "", "", "", "", Boolean.FALSE);
+                        registerSelf(noteId, commentId, start); // 续页响应回流时凭此标记再续
+                        Object obs = callSubComments(svc, cl2, noteId, commentId, start);
                         XposedHelpers.callMethod(obs, "subscribe");
                         XposedBridge.log("[xhs-harvest] auto-expand next-page " + noteId + "/"
                                 + commentId + " start=" + start);
@@ -479,22 +569,37 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
     }
 
 
-    /** kr9.c 单例:f236068a 可能声明在父类/R8 重排,XposedHelpers 找不到时反射兜底 */
+    /** Retrofit 服务注册表单例。9.33.x=kr9.c,9.54.x=i0b.c(逆向确认,za9/e0 等调用点);
+     *  静态字段名随混淆轮换(f236068a/a),一律用"静态自类型字段"扫描兜底。 */
     private static Object serviceRegistry(ClassLoader cl) throws Throwable {
-        Class<?> kls = cl.loadClass("kr9.c");
-        try {
-            return XposedHelpers.getStaticObjectField(kls, "f236068a");
-        } catch (Throwable ignored) {}
-        for (Class<?> c = kls; c != null; c = c.getSuperclass()) {
-            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
-                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())
-                        && f.getType().getName().equals(c.getName())) {
-                    f.setAccessible(true);
-                    return f.get(null);
+        for (String name : new String[]{"i0b.c", "kr9.c"}) {
+            try {
+                Class<?> kls = cl.loadClass(name);
+                for (Class<?> c = kls; c != null; c = c.getSuperclass()) {
+                    for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                        if (java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                                && f.getType().getName().equals(c.getName())) {
+                            f.setAccessible(true);
+                            return f.get(null);
+                        }
+                    }
                 }
-            }
+            } catch (Throwable ignored) {}
         }
-        throw new IllegalStateException("kr9.c registry not found");
+        throw new IllegalStateException("comment service registry not found (i0b.c/kr9.c)");
+    }
+
+    /** getSubCommentsV3 兼容调用:9.33.x 11 参,9.54.x 末尾新增 @t("container")(宿主
+     *  AB 关闭时也传空串,ya9/h.h() 逆向确认) → 先试 12 参,回退 11 参。 */
+    private static Object callSubComments(Object svc, ClassLoader cl,
+            Object noteId, Object commentId, String start) throws Throwable {
+        try {
+            return XposedHelpers.callMethod(svc, "getSubCommentsV3",
+                    noteId, commentId, start, 5, "", "", "", "", "", "", Boolean.FALSE, "");
+        } catch (Throwable t12) {
+            return XposedHelpers.callMethod(svc, "getSubCommentsV3",
+                    noteId, commentId, start, 5, "", "", "", "", "", "", Boolean.FALSE);
+        }
     }
 
     private static String uriHost(String url) {
@@ -573,8 +678,10 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
             return patchVideoSaveResponse(url, body, response);
         }
 
-        // 楼中楼子页:has_more=true 时排队下一页(start=本页最后一条子评论id)
-        if (url.contains("/note/comment/sub_comments")) {
+        // 楼中楼子页:has_more=true 时排队下一页(start=本页最后一条子评论id)。
+        // 只认自己发起的请求(消费 SELF_PENDING 标记才继续)——宿主 UI 自己翻页的
+        // 响应流经 interceptor 时只落盘,不再触发续抓,根除乘法放大。
+        if (url.contains("/note/comment/sub_comments") && consumeSelf(url)) {
             queueNextSubPage(url, body);
         }
 
@@ -682,38 +789,50 @@ public class XhsSaveFix implements IXposedHookLoadPackage {
     // 这里在 Z() 为空且 download_url 非空时把 z6 翻成 false,强制走直链。
     // (混淆类/方法名,绑定 9.33.4;失败只影响视频保存,不影响其他功能)
     private void hookVideoDownloadBranch(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod("wh8.o1", lpparam.classLoader, "a",
-                "android.app.Activity", "jra.a", "com.xingin.entities.notedetail.NoteFeed",
-                "wj6.f", "sv9.w0", int.class, boolean.class, "y06.o",
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        Object[] a = param.args;
-                        if (a == null || a.length < 8 || !Boolean.TRUE.equals(a[6])) return;
-                        String z = null;
-                        try {
-                            Object vi = XposedHelpers.callMethod(a[2], "s2");
-                            if (vi != null) {
-                                Object r = XposedHelpers.callMethod(vi, "Z");
-                                z = r == null ? null : String.valueOf(r);
+        // 9.33.x=wh8.o1(s2()/Z(), 参数 jra.a/wj6.f/sv9.w0/y06.o);
+        // 9.54.x=gl9.q1(y2()/f0(), 参数 m1c.a/tj7.f/c5b.z0/jp6.o),逆向 out8/gl9/q1.java:149。
+        // 分支结构不变:if(z) 用 NoteFeed 视频自身 url else 用响应模型 download_url。
+        String[][] targets = {
+            {"wh8.o1", "jra.a", "wj6.f", "sv9.w0", "y06.o", "s2", "Z"},
+            {"gl9.q1", "m1c.a", "tj7.f", "c5b.z0", "jp6.o", "y2", "f0"},
+        };
+        for (String[] tg : targets) {
+            try {
+                final String urlGetter = tg[6];
+                XposedHelpers.findAndHookMethod(tg[0], lpparam.classLoader, "a",
+                    "android.app.Activity", tg[1], "com.xingin.entities.notedetail.NoteFeed",
+                    tg[2], tg[3], int.class, boolean.class, tg[4],
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            Object[] a = param.args;
+                            if (a == null || a.length < 8 || !Boolean.TRUE.equals(a[6])) return;
+                            String z = null;
+                            try {
+                                Object vi = XposedHelpers.callMethod(a[2], tg[5]);
+                                if (vi != null) {
+                                    Object r = XposedHelpers.callMethod(vi, urlGetter);
+                                    z = r == null ? null : String.valueOf(r);
+                                }
+                            } catch (Throwable ignored) {}
+                            if (z != null && !z.isEmpty()) return; // 自己的视频:有值,保持原分支
+                            String dl = null;
+                            try {
+                                Object r = XposedHelpers.callMethod(a[3], "b");
+                                dl = r == null ? null : String.valueOf(r);
+                            } catch (Throwable ignored) {}
+                            if (dl != null && !dl.isEmpty()) {
+                                a[6] = Boolean.FALSE;
+                                XposedBridge.log("[xhs-savefix] " + tg[0]
+                                        + ".a: url empty, use download_url=" + dl);
                             }
-                        } catch (Throwable ignored) {}
-                        if (z != null && !z.isEmpty()) return; // 自己的视频:Z() 有值,保持原分支
-                        String dl = null;
-                        try {
-                            Object r = XposedHelpers.callMethod(a[3], "b");
-                            dl = r == null ? null : String.valueOf(r);
-                        } catch (Throwable ignored) {}
-                        if (dl != null && !dl.isEmpty()) {
-                            a[6] = Boolean.FALSE;
-                            XposedBridge.log("[xhs-savefix] o1.a: Z() empty, use download_url=" + dl);
                         }
-                    }
-                });
-            XposedBridge.log("[xhs-savefix] hooked wh8.o1.a (video download branch)");
-        } catch (Throwable t) {
-            XposedBridge.log("[xhs-savefix] hook wh8.o1.a failed (non-fatal): " + t);
+                    });
+                XposedBridge.log("[xhs-savefix] hooked " + tg[0] + ".a (video download branch)");
+                return; // 命中当前版本的类即止
+            } catch (Throwable t) {
+                XposedBridge.log("[xhs-savefix] hook " + tg[0] + ".a failed (non-fatal): " + t);
+            }
         }
     }
 
